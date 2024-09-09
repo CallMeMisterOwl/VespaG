@@ -54,7 +54,8 @@ def generate_predictions(
     sequences = {rec.id: str(rec.seq) for rec in SeqIO.parse(fasta_file, "fasta")}
 
     if embedding_file:
-        logger.info(f"Loading pre-computed embeddings from {embedding_file}")
+        pass
+        '''logger.info(f"Loading pre-computed embeddings from {embedding_file}")
         embeddings = {
             id: torch.from_numpy(np.array(emb[()], dtype=np.float32))
             for id, emb in tqdm(
@@ -68,7 +69,7 @@ def generate_predictions(
             for from_id, to_id in id_map.items():
                 embeddings[to_id] = embeddings[from_id]
                 del embeddings[from_id]
-
+'''
     else:
         logger.info("Generating ESM2 embeddings")
         if "HF_HOME" in os.environ:
@@ -90,7 +91,8 @@ def generate_predictions(
             mutation_file, one_indexed=not zero_based_mutations
         )
     else:
-        logger.info("Generating mutational landscape")
+        pass
+        '''logger.info("Generating mutational landscape")
         mutations_per_protein = {
             protein_id: [
                 SAV(i, wildtype_aa, other_aa, not zero_based_mutations)
@@ -99,8 +101,24 @@ def generate_predictions(
                 if other_aa != wildtype_aa
             ]
             for protein_id, sequence in tqdm(sequences.items(), leave=False)
-        }
-
+        }'''
+    
+    def return_mutations_per_protein(sequence):
+        for i, wildtype_aa in enumerate(sequence):
+            if wildtype_aa not in AMINO_ACIDS:
+                continue
+            for other_aa in AMINO_ACIDS:
+                if other_aa != wildtype_aa:
+                    yield SAV(i, wildtype_aa, other_aa, not zero_based_mutations)
+        '''return [
+            SAV(i, wildtype_aa, other_aa, not zero_based_mutations)
+            for i, wildtype_aa in enumerate(sequence)
+            for other_aa in AMINO_ACIDS
+            if other_aa != wildtype_aa
+        ]    '''
+        
+        
+        
     logger.info("Generating predictions")
     vespag_scores = {}
     scores_per_protein = {}
@@ -113,14 +131,24 @@ def generate_predictions(
     ) as pbar, torch.no_grad():
         overall_progress = pbar.add_task(
             "Generating predictions",
-            total=sum([len(mutations) for mutations in mutations_per_protein.values()]),
+            total=sum([len(seq) * 20 for seq in sequences.values()]),
         )
         for id, sequence in sequences.items():
             pbar.update(overall_progress, description=id)
-            embedding = embeddings[id].to(device)
+            #embedding = embeddings[id].to(device)
+            # extract embeddings separately for each protein -> limits RAM usage
+            try:
+                with h5py.File(embedding_file, "r") as f:
+                    embedding = torch.from_numpy(np.array(f[id][()], dtype=np.float32)).to(device)
+            except:
+                logger.error(f"Embedding for protein {id} not found in {embedding_file}")
+                continue
+            # mask all amino acids that are not in the alphabet e.g. X, U, O etc.
+            mask = torch.tensor([1 if aa in AMINO_ACIDS else 0 for aa in sequence], dtype=torch.bool).to(device)
             y = model(embedding)
-            y = mask_non_mutations(y, sequence)
-
+            masked_y = mask_non_mutations(y[mask], ''.join([aa for aa in sequence if aa in AMINO_ACIDS]))
+            y[mask] = masked_y
+            
             scores_per_protein[id] = {
                 mutation: compute_mutation_score(
                     y,
@@ -129,7 +157,7 @@ def generate_predictions(
                     progress_id=overall_progress,
                     normalize=normalize_scores,
                 )
-                for mutation in mutations_per_protein[id]
+                for mutation in return_mutations_per_protein(sequence)
             }
             if h5_output:
                 vespag_scores[id] = y.detach().numpy()
