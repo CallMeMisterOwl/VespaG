@@ -78,8 +78,8 @@ def mask_non_mutations(
             torch.tensor([GEMME_ALPHABET.index(aa) for aa in wildtype_sequence]),
         ] = 0.0
     except ValueError:
-        mask = torch.tensor([1 for aa in wildtype_sequence if aa in GEMME_ALPHABET], dtype=torch.bool)
-        masked_gemme_prediction = gemme_prediction[mask]
+        mask = torch.tensor([1 if aa in GEMME_ALPHABET else 0 for aa in wildtype_sequence ], dtype=torch.bool)
+        masked_gemme_prediction = gemme_prediction[mask, :]
         masked_gemme_prediction[
             torch.arange(masked_gemme_prediction.size(0)),
             torch.tensor([GEMME_ALPHABET.index(aa) for aa in wildtype_sequence if aa in GEMME_ALPHABET]),
