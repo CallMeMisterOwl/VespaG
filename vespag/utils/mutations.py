@@ -72,11 +72,19 @@ def mask_non_mutations(
     """
     Simply set the predicted effect of the wildtype amino acid at each position (i.e. all non-mutations) to 0
     """
-    gemme_prediction[
-        torch.arange(len(wildtype_sequence)),
-        torch.tensor([GEMME_ALPHABET.index(aa) for aa in wildtype_sequence]),
-    ] = 0.0
-
+    try:
+        gemme_prediction[
+            torch.arange(len(wildtype_sequence)),
+            torch.tensor([GEMME_ALPHABET.index(aa) for aa in wildtype_sequence]),
+        ] = 0.0
+    except ValueError:
+        mask = torch.tensor([1 for aa in wildtype_sequence if aa in GEMME_ALPHABET], dtype=torch.bool)
+        masked_gemme_prediction = gemme_prediction[mask]
+        masked_gemme_prediction[
+            torch.arange(masked_gemme_prediction.size(0)),
+            torch.tensor([GEMME_ALPHABET.index(aa) for aa in wildtype_sequence if aa in GEMME_ALPHABET]),
+        ] = 0.0
+        gemme_prediction[mask] = masked_gemme_prediction
     return gemme_prediction
 
 
